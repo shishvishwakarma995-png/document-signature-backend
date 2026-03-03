@@ -2,10 +2,17 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { supabase } from '../config/supabase.js';
 
-const generateToken = (user) =>
+const generateAccessToken = (user) =>
   jwt.sign(
     { id: user.id, email: user.email, name: user.name },
     process.env.JWT_SECRET,
+    { expiresIn: '15m' }
+  );
+
+const generateRefreshToken = (user) =>
+  jwt.sign(
+    { id: user.id, email: user.email, name: user.name },
+    process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET + '_refresh',
     { expiresIn: '7d' }
   );
 
@@ -30,7 +37,8 @@ export const register = async (req, res) => {
     if (error) throw error;
 
     return res.status(201).json({
-      token: generateToken(user),
+      token: generateAccessToken(user),
+      refreshToken: generateRefreshToken(user),
       user,
       message: 'Account created!'
     });
@@ -53,13 +61,34 @@ export const login = async (req, res) => {
     if (!user || !(await bcrypt.compare(password, user.password)))
       return res.status(401).json({ error: 'Invalid email or password.' });
 
+    const safeUser = { id: user.id, name: user.name, email: user.email };
     return res.status(200).json({
-      token: generateToken(user),
-      user: { id: user.id, name: user.name, email: user.email },
+      token: generateAccessToken(safeUser),
+      refreshToken: generateRefreshToken(safeUser),
+      user: safeUser,
       message: 'Login successful.'
     });
   } catch (err) {
     return res.status(500).json({ error: 'Internal server error.' });
+  }
+};
+
+export const refresh = async (req, res) => {
+  const { refreshToken } = req.body;
+  if (!refreshToken)
+    return res.status(401).json({ error: 'Refresh token required.' });
+  try {
+    const decoded = jwt.verify(
+      refreshToken,
+      process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET + '_refresh'
+    );
+    const user = { id: decoded.id, email: decoded.email, name: decoded.name };
+    return res.status(200).json({
+      token: generateAccessToken(user),
+      refreshToken: generateRefreshToken(user),
+    });
+  } catch {
+    return res.status(401).json({ error: 'Invalid or expired refresh token.' });
   }
 };
 

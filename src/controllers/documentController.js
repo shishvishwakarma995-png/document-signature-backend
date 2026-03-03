@@ -1,46 +1,32 @@
 import multer from 'multer';
 import { supabase } from '../config/supabase.js';
 
-// Multer — memory mein file store karo
 const storage = multer.memoryStorage();
 export const upload = multer({
   storage,
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/pdf') {
-      cb(null, true);
-    } else {
-      cb(new Error('Only PDF files allowed!'), false);
-    }
+    if (file.mimetype === 'application/pdf') cb(null, true);
+    else cb(new Error('Only PDF files allowed!'), false);
   },
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
 
 // POST /api/docs/upload
 export const uploadDocument = async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded.' });
-    }
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
 
     const userId = req.user.id;
     const fileName = `${userId}/${Date.now()}-${req.file.originalname}`;
 
-    // Supabase Storage mein upload karo
     const { error: uploadError } = await supabase.storage
       .from('documents')
-      .upload(fileName, req.file.buffer, {
-        contentType: 'application/pdf',
-        upsert: false,
-      });
+      .upload(fileName, req.file.buffer, { contentType: 'application/pdf', upsert: false });
 
     if (uploadError) throw uploadError;
 
-    // Signed URL banao
-    const { data: urlData } = await supabase.storage
-      .from('documents')
-      .createSignedUrl(fileName, 60 * 60 * 24 * 7); // 7 days
+    const { data: urlData } = supabase.storage.from('documents').getPublicUrl(fileName);
 
-    // Database mein save karo
     const { data: document, error: dbError } = await supabase
       .from('documents')
       .insert([{
@@ -48,18 +34,14 @@ export const uploadDocument = async (req, res) => {
         filename: fileName,
         original_name: req.file.originalname,
         storage_path: fileName,
-        file_url: urlData.signedUrl,
+        file_url: urlData.publicUrl,
         status: 'uploaded',
       }])
       .select()
       .single();
 
     if (dbError) throw dbError;
-
-    return res.status(201).json({
-      message: 'Document uploaded successfully!',
-      document,
-    });
+    return res.status(201).json({ message: 'Document uploaded successfully!', document });
   } catch (err) {
     console.error('Upload error:', err);
     return res.status(500).json({ error: err.message || 'Upload failed.' });
@@ -76,7 +58,6 @@ export const getDocuments = async (req, res) => {
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-
     return res.status(200).json({ documents });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to fetch documents.' });
@@ -86,26 +67,68 @@ export const getDocuments = async (req, res) => {
 // GET /api/docs/:id
 export const getDocument = async (req, res) => {
   try {
-    const { data: document, error } = await supabase
+    // Check owner — if it doesn't match, try without owner check (self-sign flow)
+    let query = supabase.from('documents').select('*').eq('id', req.params.id);
+    
+    if (req.user?.id) {
+      query = query.eq('owner_id', req.user.id);
+    }
+
+    const { data: document, error } = await query.single();
+
+    if (error || !document) return res.status(404).json({ error: 'Document not found.' });
+
+    const { data: urlData } = supabase.storage.from('documents').getPublicUrl(document.storage_path);
+    return res.status(200).json({ document: { ...document, file_url: urlData.publicUrl } });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to fetch document.' });
+  }
+};
+
+// POST /api/docs/:id/stamp — stamp save
+export const saveStamp = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { stampData } = req.body;
+
+    console.log('saveStamp called, docId:', id);
+    console.log('stampData received:', stampData ? 'YES - length:' + stampData.length : 'NO');
+    console.log('user id:', req.user?.id);
+
+    const { data, error } = await supabase
+      .from('documents')
+      .update({ stamp_data: stampData })
+      .eq('id', id)
+      .eq('owner_id', req.user.id)
+      .select();
+
+    console.log('Supabase update result:', data, error);
+
+    if (error) throw error;
+    return res.status(200).json({ message: 'Stamp saved!' });
+  } catch (err) {
+    console.error('Stamp save error:', err);
+    return res.status(500).json({ error: 'Failed to save stamp.' });
+  }
+};
+
+// DELETE /api/docs/:id
+export const deleteDocument = async (req, res) => {
+  try {
+    const { data: doc } = await supabase
       .from('documents')
       .select('*')
       .eq('id', req.params.id)
       .eq('owner_id', req.user.id)
       .single();
 
-    if (error || !document) {
-      return res.status(404).json({ error: 'Document not found.' });
-    }
+    if (!doc) return res.status(404).json({ error: 'Document not found.' });
 
-    // Fresh signed URL banao
-    const { data: urlData } = await supabase.storage
-      .from('documents')
-      .createSignedUrl(document.storage_path, 60 * 60);
+    await supabase.storage.from('documents').remove([doc.storage_path]);
+    await supabase.from('documents').delete().eq('id', req.params.id);
 
-    return res.status(200).json({
-      document: { ...document, file_url: urlData.signedUrl }
-    });
+    return res.status(200).json({ message: 'Document deleted!' });
   } catch (err) {
-    return res.status(500).json({ error: 'Failed to fetch document.' });
+    return res.status(500).json({ error: 'Failed to delete document.' });
   }
 };

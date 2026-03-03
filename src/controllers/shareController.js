@@ -7,7 +7,7 @@ export const createShareLink = async (req, res) => {
     const { docId } = req.params;
     const { signerEmail } = req.body;
 
-    // Document exist karta hai?
+    // Document already exist ?
     const { data: doc } = await supabase
       .from('documents')
       .select('*')
@@ -34,7 +34,7 @@ export const createShareLink = async (req, res) => {
 
     if (error) throw error;
 
-    // Document status pending karo
+    // Document status pending 
     await supabase
       .from('documents')
       .update({ status: 'pending' })
