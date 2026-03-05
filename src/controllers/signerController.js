@@ -1,9 +1,6 @@
 import crypto from 'crypto';
-import * as Brevo from '@getbrevo/brevo';
+import axios from 'axios';
 import { supabase } from '../config/supabase.js';
-
-const brevoClient = new Brevo.TransactionalEmailsApi();
-brevoClient.authentications['api-key'].apiKey = process.env.BREVO_API_KEY;
 
 export const inviteSigners = async (req, res) => {
   try {
@@ -39,7 +36,7 @@ export const inviteSigners = async (req, res) => {
       const signingLink = `${process.env.CLIENT_URL}/sign/${token}`;
 
       try {
-        await brevoClient.sendTransacEmail({
+        await axios.post('https://api.brevo.com/v3/smtp/email', {
           sender: { email: process.env.GMAIL_USER, name: 'SignVault' },
           to: [{ email: email.trim() }],
           subject: `You have been requested to sign: ${doc.original_name}`,
@@ -65,6 +62,11 @@ export const inviteSigners = async (req, res) => {
               </div>
             </div>
           `,
+        }, {
+          headers: {
+            'api-key': process.env.BREVO_API_KEY,
+            'Content-Type': 'application/json',
+          }
         });
 
         await supabase.from('signers').update({ email_sent_at: new Date().toISOString() }).eq('id', signer.id);
