@@ -1,14 +1,9 @@
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
+import * as Brevo from '@getbrevo/brevo';
 import { supabase } from '../config/supabase.js';
 
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_PASS,
-  },
-});
+const brevoClient = new Brevo.TransactionalEmailsApi();
+brevoClient.authentications['api-key'].apiKey = process.env.BREVO_API_KEY;
 
 export const inviteSigners = async (req, res) => {
   try {
@@ -44,11 +39,11 @@ export const inviteSigners = async (req, res) => {
       const signingLink = `${process.env.CLIENT_URL}/sign/${token}`;
 
       try {
-        await transporter.sendMail({
-          from: `"SignVault" <${process.env.GMAIL_USER}>`,
-          to: email.trim(),
+        await brevoClient.sendTransacEmail({
+          sender: { email: process.env.GMAIL_USER, name: 'SignVault' },
+          to: [{ email: email.trim() }],
           subject: `You have been requested to sign: ${doc.original_name}`,
-          html: `
+          htmlContent: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 20px;">
               <div style="background: #0A0A0B; padding: 24px; border-radius: 8px 8px 0 0; text-align: center;">
                 <h1 style="color: #C9A84C; font-size: 24px; margin: 0; letter-spacing: 2px;">SignVault</h1>
