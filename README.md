@@ -2,7 +2,7 @@
 
 > REST API for SignVault Document Signature Platform
 
-**Live API:** https://document-signature-backend-production.up.railway.app
+**Live API:** https://document-signature-backend-gyvu.onrender.com
 
 ---
 
@@ -113,7 +113,7 @@ API runs at `http://localhost:5000`
 
 ## Deployment
 
-Deployed on **Railway**.
+Deployed on **Render**.
 
 ---
 
